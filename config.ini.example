@@ -1,0 +1,26 @@
+[bugzilla]
+# Name of the external tracker in Bugzila that
+# is used for linking Gerrit issues
+external_tracker_name = Some Tracker Name
+# Bugzilla login name for assigning bugs to.
+login_name = someone@example.com
+# Product name in Bugzilla. This is used
+# to verify that bugs belong to the expected
+# product before performing any actions
+product = Some Product Name
+# Note that part of the code uses a Red Hat
+# Bugzilla specific API
+url = bugzilla.example.com
+
+[gerrit]
+# The gerrit server being used
+server: gerrit.whatever.example.com
+# Origin URL is used to verify that the origin_url
+# in your git project is what is expected. That is,
+# you are not accidentally using this command in the
+# wrong git directory.
+origin_url: git+ssh://%(server)s/my-project.git
+# List of reviewers for git-review --reviewers
+reviewers: someone@example.com
+           bob@example.com
+           jane@example.com

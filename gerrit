@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.  See http://www.gnu.org/copyleft/gpl.html for
+# the full text of the license.
+
+import argparse
+import bugzilla
+import configparser
+import os
+import pprint
+import re
+import subprocess
+import sys
+
+from typing import TypeVar, List
+ListOrStr = TypeVar('ListOrStr', List[str], str)
+
+class GerritError(Exception):
+    pass
+
+def bug_id_from_branch() -> int:
+    branch_name = current_git_branch()
+    match = re.match('bug_(\d+)', branch_name)
+    if match is None:
+        raise GerritError("current branch %s not of format bug_NUMBER" % branch_name)
+    bug_id = match.group(1)
+    return int(bug_id)
+
+def bz_connection() -> bugzilla.RHBugzilla:
+    config = read_config()
+    bzapi = bugzilla.RHBugzilla(config['bugzilla']['url'])
+    if not bzapi.logged_in:
+        bzapi.interactive_login()
+    return bzapi
+
+def config_file() -> str:
+    default_config_home = os.path.join(os.path.expanduser('~'), '.config')
+    config_home = os.environ.get('XDG_CONFIG_HOME', default_config_home)
+    return os.path.join(config_home, 'gerrit_workflow', 'config.ini')
+
+def current_git_branch() -> str:
+    branch_name = execute_git_command('git rev-parse --abbrev-ref HEAD')
+    return branch_name
+
+
+def execute_git_command(cmd: ListOrStr) -> str:
+    if isinstance(cmd, str):
+        cmd = cmd.split()
+    
+    result = subprocess.run(cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            check=False)
+    if 0 == result.returncode:
+        return result.stdout.decode('utf-8').strip()
+    else:
+        raise GerritError(result.stderr.decode('utf-8').strip())
+
+def get_git_origin_url() -> str:
+    remote = execute_git_command('git remote')
+    if '' == remote:
+        raise GerritError("No git remote is set")
+    return execute_git_command('git remote get-url %s' % remote)
+
+def read_config():
+    config = configparser.ConfigParser()
+    config.read(config_file())
+    return config
+
+def reviewers() -> List[str]:
+    config = read_config()
+    reviewers = config['gerrit']['reviewers']
+    return reviewers.split()
+
+def submit_git_review() -> str:
+    command = ['git-review', '--reviewer'] + reviewers()
+    result = execute_git_command(command)
+    config = read_config()
+    change_url = config['gerrit']
+    urlmatch = re.compile('https://%s/gerrit/(\d+)' % config['gerrit']['server'])
+    matching = [s for s in result.split() if urlmatch.match(s)]
+    gerrit_id = urlmatch.match(matching[0]).group(1)
+    return gerrit_id
+
+def verify_git_project():
+    config = read_config()
+    expected_origin_url = config['gerrit']['origin_url']
+    origin_url = get_git_origin_url()
+    if origin_url != expected_origin_url:
+        raise GerritError("Origin of this git tree is not %s, is instead: %s" % (expected_origin_url, origin_url))
+
+def verify_bug(bug_id: int):
+    bzapi = bz_connection()
+    bug = bzapi.getbug(bug_id)
+    config = read_config()
+    product = config['bugzilla']['product']
+    if product != bug.product:
+        raise GerritError("Bug %s must be for %s, not %s" % (bug_id, product, bug.product))
+    
+def take_bug(args: argparse.Namespace):
+    """
+    Attemps to assign self to a bug.
+    First check that current branch is develop 
+    """
+    verify_git_project()
+    verify_bug(args.bug_id)
+    
+    if 'develop' != current_git_branch():
+        latest_devel(args)
+
+    bzapi = bz_connection()
+    config = read_config()
+    update = bzapi.build_update(status='ASSIGNED',
+                                assigned_to=config['bugzilla']['login_name'])
+    bzapi.update_bugs([args.bug_id], update)
+
+    msg = execute_git_command('git checkout -b bug_%s' % args.bug_id)
+    print(msg)
+
+def latest_devel(args: argparse.Namespace):
+    """
+    Reverts all current changed files, checks
+    out develop branch, pulls latest from gerrit
+    """
+    execute_git_command('git reset --hard HEAD')
+    execute_git_command('git checkout develop')
+    execute_git_command('git pull')
+
+def submit(args: argparse.Namespace):
+    """
+    Submits a git review
+    """
+    verify_git_project()
+    bug_id = bug_id_from_branch()
+    verify_bug(bug_id)
+    
+    gerrit_id = submit_git_review()
+
+    bzapi = bz_connection()
+    update = bzapi.build_update(status="POST")
+    bzapi.update_bugs([bug_id], update)
+
+    config = read_config()
+    bzapi.add_external_tracker(bug_id,
+                               gerrit_id,
+                               ext_type_description=config['bugzilla']['external_tracker_name'])
+
+def main():
+  parser = argparse.ArgumentParser(description='Gerrit Workflow Helper')
+  subparsers = parser.add_subparsers(title='commands')
+  parser_take = subparsers.add_parser('take-bug',
+                               help='Add self to bug',
+                               description=take_bug.__doc__)
+  parser_take.add_argument('bug_id',
+                           type=int)
+  parser_take.set_defaults(func=take_bug)
+
+  parser_submit = subparsers.add_parser('submit',
+                               help='Submits code for gerrit review',
+                               description=submit.__doc__)
+  parser_submit.set_defaults(func=submit)
+
+  parser_devel = subparsers.add_parser('latest-devel',
+                                        help='Switch to develop branch, pull latest changes',
+                                        description=latest_devel.__doc__)
+  parser_devel.set_defaults(func=latest_devel)
+
+  if len(sys.argv) == 1:
+      parser.print_help()
+      return 1
+
+  args = parser.parse_args()
+  return args.func(args)
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except GerritError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
