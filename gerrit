@@ -23,10 +23,10 @@ class GerritError(Exception):
 
 def bug_id_from_branch() -> int:
     branch_name = current_git_branch()
-    match = re.match('bug_(\d+)', branch_name)
+    match = re.match('bug_(\d+)|.+\/bug\/(\d+)', branch_name)
     if match is None:
         raise GerritError("current branch %s not of format bug_NUMBER" % branch_name)
-    bug_id = match.group(1)
+    bug_id = match.group(match.lastindex)
     return int(bug_id)
 
 def bz_connection() -> bugzilla.RHBugzilla:
@@ -59,11 +59,18 @@ def execute_git_command(cmd: ListOrStr) -> str:
     else:
         raise GerritError(result.stderr.decode('utf-8').strip())
 
+def gerrit_server_host() -> str:
+    config = read_config()
+    return config['gerrit']['server']
+
 def get_git_origin_url() -> str:
     remote = execute_git_command('git remote')
     if '' == remote:
         raise GerritError("No git remote is set")
     return execute_git_command('git remote get-url %s' % remote)
+
+def get_head_commit_id() -> str:
+    return execute_git_command('git log -1 --pretty=format:"%h"')
 
 def read_config():
     config = configparser.ConfigParser()
@@ -78,9 +85,7 @@ def reviewers() -> List[str]:
 def submit_git_review() -> str:
     command = ['git-review', '--reviewer'] + reviewers()
     result = execute_git_command(command)
-    config = read_config()
-    change_url = config['gerrit']
-    urlmatch = re.compile('https://%s/gerrit/(\d+)' % config['gerrit']['server'])
+    urlmatch = re.compile('https://%s/gerrit/(\d+)' % gerrit_server_host())
     matching = [s for s in result.split() if urlmatch.match(s)]
     gerrit_id = urlmatch.match(matching[0]).group(1)
     return gerrit_id
@@ -129,6 +134,27 @@ def latest_devel(args: argparse.Namespace):
     execute_git_command('git checkout develop')
     execute_git_command('git pull')
 
+def merge(args: argparse.Namespace):
+    """
+    Merges the current review, and moves bug to MODIFIED
+    """
+    verify_git_project()
+    bug_id = bug_id_from_branch()
+    verify_bug(bug_id)
+
+    commit_id = get_head_commit_id()
+    execute_git_command(['ssh',
+                         '-x',
+                         gerrit_server_host(),
+                         'gerrit',
+                         'review',
+                         '--submit',
+                         commit_id])
+
+    bzapi = bz_connection()
+    update = bzapi.build_update(status="MODIFIED")
+    bzapi.update_bugs([bug_id], update)
+
 def submit(args: argparse.Namespace):
     """
     Submits a git review
@@ -138,7 +164,6 @@ def submit(args: argparse.Namespace):
     verify_bug(bug_id)
     
     gerrit_id = submit_git_review()
-
     bzapi = bz_connection()
     update = bzapi.build_update(status="POST")
     bzapi.update_bugs([bug_id], update)
@@ -159,9 +184,14 @@ def main():
   parser_take.set_defaults(func=take_bug)
 
   parser_submit = subparsers.add_parser('submit',
-                               help='Submits code for gerrit review',
-                               description=submit.__doc__)
+                                        help='Submits code for gerrit review',
+                                        description=submit.__doc__)
   parser_submit.set_defaults(func=submit)
+
+  parser_merge = subparsers.add_parser('merge',
+                                        help='Merges current commit',
+                                        description=submit.__doc__)
+  parser_merge.set_defaults(func=merge)
 
   parser_devel = subparsers.add_parser('latest-devel',
                                         help='Switch to develop branch, pull latest changes',

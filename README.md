@@ -30,6 +30,7 @@ See example configuration file.
 - Cleanup usage of config file. Was added late to allow external code use.
 - Add functionality to merge accepted code in gerrit and move bug into MODIFIED.
 - Possibly eliminate bugzilla login_name in config and use the python-bugzilla API. OTOH this would require the use of a config file specifying user login and password, instead of an api key or cookies.
+- Since the submit review code has no equivalent in git-review, consider swithing to all ssh commands against gerrit API.
 
 ## License
 
