@@ -15,6 +15,7 @@ These commands must all be run within your git project.
 - `gerrit latest-devel` - git-reset --hard HEAD; git-checkout develop; git-pull
 - `gerrit take-bug BUGID` - Performs latest-devel, checks out a new branch called bug_BUGID, assigns you to the bug, and moves bug into ASSIGNED state.
 - `gerrit submit` - Submits to gerrit via git-review, using reviewers in config file. Moves the bug into POST, and links the gerrit review to the bug
+- `gerrit merge` - Merges the review in gerrit, and moves the linked bug into MODIFIED state.
 
 Requires a config file in $XDG_CONFIG_HOME/gerrit_workflow/config.ini. Defaults to ~/.config/gerrit_workflow
 
