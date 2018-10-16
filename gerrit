@@ -83,7 +83,7 @@ def reviewers() -> List[str]:
     return reviewers.split()
 
 def submit_git_review() -> str:
-    command = ['git-review', '--reviewer'] + reviewers()
+    command = ['git-review', '--y', '--reviewer'] + reviewers()
     result = execute_git_command(command)
     urlmatch = re.compile('https://%s/gerrit/(\d+)' % gerrit_server_host())
     matching = [s for s in result.split() if urlmatch.match(s)]
@@ -155,9 +155,16 @@ def merge(args: argparse.Namespace):
     update = bzapi.build_update(status="MODIFIED")
     bzapi.update_bugs([bug_id], update)
 
+def only_submit(args: argparse.Namespace):
+    """
+    Submits a git review, but does not affect bug
+    """
+    verify_git_project()
+    submit_git_review()
+
 def submit(args: argparse.Namespace):
     """
-    Submits a git review
+    Submits a git review and moves bug into POST
     """
     verify_git_project()
     bug_id = bug_id_from_branch()
@@ -187,6 +194,11 @@ def main():
                                         help='Submits code for gerrit review',
                                         description=submit.__doc__)
   parser_submit.set_defaults(func=submit)
+
+  parser_only = subparsers.add_parser('only-submit',
+                                        help='Submits code for gerrit review only',
+                                        description=only_submit.__doc__)
+  parser_only.set_defaults(func=only_submit)
 
   parser_merge = subparsers.add_parser('merge',
                                         help='Merges current commit',
