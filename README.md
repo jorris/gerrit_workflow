@@ -1,11 +1,11 @@
 # gerrit_workflow
 
-This is a simple command line helper I wrote to assist in a particular gerrit workflow.
+This is a simple command line helper I wrote to assist in a particular gerrit workflow. This branch is for the Python 2 version.
 
 ## Prerequisites
 
-- Python 3.6
-- python3-bugzilla
+- Python 2
+- python2-bugzilla
 - git-review
 
 ## Usage
