@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the
@@ -15,13 +15,10 @@ import re
 import subprocess
 import sys
 
-from typing import TypeVar, List
-ListOrStr = TypeVar('ListOrStr', List[str], str)
-
 class GerritError(Exception):
     pass
 
-def bug_id_from_branch() -> int:
+def bug_id_from_branch():
     branch_name = current_git_branch()
     match = re.match('bug_(\d+)|.+\/bug\/(\d+)', branch_name)
     if match is None:
@@ -29,24 +26,24 @@ def bug_id_from_branch() -> int:
     bug_id = match.group(match.lastindex)
     return int(bug_id)
 
-def bz_connection() -> bugzilla.RHBugzilla:
+def bz_connection():
     config = read_config()
     bzapi = bugzilla.RHBugzilla(config['bugzilla']['url'])
     if not bzapi.logged_in:
         bzapi.interactive_login()
     return bzapi
 
-def config_file() -> str:
+def config_file():
     default_config_home = os.path.join(os.path.expanduser('~'), '.config')
     config_home = os.environ.get('XDG_CONFIG_HOME', default_config_home)
     return os.path.join(config_home, 'gerrit_workflow', 'config.ini')
 
-def current_git_branch() -> str:
+def current_git_branch():
     branch_name = execute_git_command('git rev-parse --abbrev-ref HEAD')
     return branch_name
 
 
-def execute_git_command(cmd: ListOrStr) -> str:
+def execute_git_command(cmd):
     if isinstance(cmd, str):
         cmd = cmd.split()
     
@@ -59,17 +56,17 @@ def execute_git_command(cmd: ListOrStr) -> str:
     else:
         raise GerritError(result.stderr.decode('utf-8').strip())
 
-def gerrit_server_host() -> str:
+def gerrit_server_host():
     config = read_config()
     return config['gerrit']['server']
 
-def get_git_origin_url() -> str:
+def get_git_origin_url():
     remote = execute_git_command('git remote')
     if '' == remote:
         raise GerritError("No git remote is set")
     return execute_git_command('git remote get-url %s' % remote)
 
-def get_head_commit_id() -> str:
+def get_head_commit_id():
     return execute_git_command('git log -1 --pretty=format:"%h"')
 
 def read_config():
@@ -77,12 +74,12 @@ def read_config():
     config.read(config_file())
     return config
 
-def reviewers() -> List[str]:
+def reviewers():
     config = read_config()
     reviewers = config['gerrit']['reviewers']
     return reviewers.split()
 
-def submit_git_review() -> str:
+def submit_git_review():
     command = ['git-review', '--y', '--reviewer'] + reviewers()
     result = execute_git_command(command)
     urlmatch = re.compile('https://%s/gerrit/(\d+)' % gerrit_server_host())
@@ -97,7 +94,7 @@ def verify_git_project():
     if origin_url != expected_origin_url:
         raise GerritError("Origin of this git tree is not %s, is instead: %s" % (expected_origin_url, origin_url))
 
-def verify_bug(bug_id: int):
+def verify_bug(bug_id):
     bzapi = bz_connection()
     bug = bzapi.getbug(bug_id)
     config = read_config()
@@ -105,7 +102,7 @@ def verify_bug(bug_id: int):
     if product != bug.product:
         raise GerritError("Bug %s must be for %s, not %s" % (bug_id, product, bug.product))
     
-def take_bug(args: argparse.Namespace):
+def take_bug(args):
     """
     Attemps to assign self to a bug.
     First check that current branch is develop 
@@ -125,7 +122,7 @@ def take_bug(args: argparse.Namespace):
     msg = execute_git_command('git checkout -b bug_%s' % args.bug_id)
     print(msg)
 
-def latest_devel(args: argparse.Namespace):
+def latest_devel(args):
     """
     Reverts all current changed files, checks
     out develop branch, pulls latest from gerrit
@@ -134,7 +131,7 @@ def latest_devel(args: argparse.Namespace):
     execute_git_command('git checkout develop')
     execute_git_command('git pull')
 
-def merge(args: argparse.Namespace):
+def merge(args):
     """
     Merges the current review, and moves bug to MODIFIED
     """
@@ -155,14 +152,14 @@ def merge(args: argparse.Namespace):
     update = bzapi.build_update(status="MODIFIED")
     bzapi.update_bugs([bug_id], update)
 
-def only_submit(args: argparse.Namespace):
+def only_submit(args):
     """
     Submits a git review, but does not affect bug
     """
     verify_git_project()
     submit_git_review()
 
-def submit(args: argparse.Namespace):
+def submit(args):
     """
     Submits a git review and moves bug into POST
     """
@@ -221,5 +218,6 @@ if __name__ == '__main__':
     try:
         sys.exit(main())
     except GerritError as e:
-        print(e, file=sys.stderr)
+        print e
+        #print(e, file=sys.stderr)
         sys.exit(1)
